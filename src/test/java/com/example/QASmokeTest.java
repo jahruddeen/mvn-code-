@@ -70,25 +70,20 @@ public class QASmokeTest {
     }
 
     /**
-     * Test 4: Home Endpoint (if exists)
+     * Test 4: Home Endpoint
      */
     @Test
     public void testHomeEndpoint() {
-        try {
-            ResponseEntity<String> response = restTemplate.getForEntity(
-                CONTEXT_PATH + "/",
-                String.class
-            );
+        ResponseEntity<String> response = restTemplate.getForEntity(
+            CONTEXT_PATH + "/",
+            String.class
+        );
 
-            assertTrue(
-                "Home endpoint should return 200 or 302",
-                response.getStatusCode() == HttpStatus.OK ||
-                response.getStatusCode() == HttpStatus.FOUND
-            );
-        } catch (Exception e) {
-            // Expected if endpoint doesn't exist
-            assertNotNull("Test execution completed", e);
-        }
+        assertTrue(
+            "Home endpoint should return 200 or 302",
+            response.getStatusCode() == HttpStatus.OK ||
+            response.getStatusCode() == HttpStatus.FOUND
+        );
     }
 
     /**
@@ -122,10 +117,17 @@ public class QASmokeTest {
             String.class
         );
 
-        assertNotNull("Content-Type header missing", response.getHeaders().getContentType());
+        assertNotNull(
+            "Content-Type header missing",
+            response.getHeaders().getContentType()
+        );
+
         assertTrue(
             "Response should contain JSON content",
-            response.getHeaders().getContentType().toString().contains("application/json")
+            response.getHeaders()
+                .getContentType()
+                .toString()
+                .contains("application/json")
         );
     }
 }
