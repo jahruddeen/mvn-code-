@@ -3,6 +3,8 @@ package com.example;
 import org.junit.Test;
 import org.junit.runner.RunWith;
 import org.springframework.boot.test.context.SpringBootTest;
+import org.springframework.core.env.Environment;
+import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.test.context.TestPropertySource;
 import org.springframework.test.context.junit4.SpringRunner;
 
@@ -17,12 +19,15 @@ import static org.junit.Assert.*;
 @TestPropertySource(locations = "classpath:application-qa.properties")
 public class QAIntegrationTest {
 
+    @Autowired
+    private Environment environment;
+
     /**
      * Test 1: Application Initialization
      */
     @Test
     public void testApplicationInitialization() {
-        assertNotNull("Application failed to initialize", "application");
+        assertNotNull("Application context failed to initialize", environment);
     }
 
     /**
@@ -30,8 +35,19 @@ public class QAIntegrationTest {
      */
     @Test
     public void testPropertiesLoaded() {
-        String environment = System.getProperty("app.environment", "unknown");
-        assertNotNull("Environment property not loaded", environment);
+        String applicationName = environment.getProperty("spring.application.name");
+        String appEnvironment = environment.getProperty("app.environment");
+
+        assertNotNull(
+            "Spring application name property not loaded",
+            applicationName
+        );
+
+        assertEquals(
+            "QA environment property not loaded correctly",
+            "qa",
+            appEnvironment
+        );
     }
 
     /**
@@ -39,6 +55,17 @@ public class QAIntegrationTest {
      */
     @Test
     public void testLoggingConfiguration() {
-        assertTrue("Logging should be configured", true);
+        String loggingLevel = environment.getProperty("logging.level.com.example");
+
+        assertNotNull(
+            "Logging configuration not loaded",
+            loggingLevel
+        );
+
+        assertEquals(
+            "Logging level should be DEBUG",
+            "DEBUG",
+            loggingLevel
+        );
     }
 }
