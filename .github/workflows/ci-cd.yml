@@ -1,0 +1,370 @@
+name: Java Maven CI/CD
+
+on:
+  push:
+    branches:
+      - master
+
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+env:
+  JAVA_VERSION: '17'
+
+jobs:
+
+  # ============================================================
+  # CI - BUILD & TEST
+  # ============================================================
+
+  build:
+    name: Build and Test
+    runs-on: [self-hosted, windows, x64]
+
+    steps:
+
+      # ----------------------------------------------------------
+      # Checkout
+      # ----------------------------------------------------------
+
+      - name: Checkout source code
+        uses: actions/checkout@v6
+
+      # ----------------------------------------------------------
+      # Setup Java
+      # ----------------------------------------------------------
+
+      - name: Setup Java
+        uses: actions/setup-java@v5
+        with:
+          distribution: temurin
+          java-version: ${{ env.JAVA_VERSION }}
+          cache: maven
+
+      # ----------------------------------------------------------
+      # Verify Java
+      # ----------------------------------------------------------
+
+      - name: Verify Java
+        shell: powershell
+        run: |
+          java -version
+
+      # ----------------------------------------------------------
+      # Build
+      # ----------------------------------------------------------
+
+      - name: Maven Clean Package
+        shell: powershell
+        run: |
+          .\mvnw.cmd clean package -DskipTests=false
+
+      # ----------------------------------------------------------
+      # Run tests
+      # ----------------------------------------------------------
+
+      - name: Run Maven Tests
+        shell: powershell
+        run: |
+          .\mvnw.cmd test
+
+      # ----------------------------------------------------------
+      # Find JAR
+      # ----------------------------------------------------------
+
+      - name: Find application JAR
+        id: find_jar
+        shell: powershell
+        run: |
+
+          $jar = Get-ChildItem `
+            -Path "$env:GITHUB_WORKSPACE\target" `
+            -Filter "*.jar" `
+            -File |
+            Where-Object {
+              $_.Name -notlike "*-sources.jar" -and
+              $_.Name -notlike "*-javadoc.jar" and
+              $_.Name -notlike "original-*"
+            } |
+            Select-Object -First 1
+
+          if (-not $jar) {
+            Write-Error "Application JAR not found."
+            exit 1
+          }
+
+          Write-Host "Application JAR: $($jar.FullName)"
+
+          "jar=$($jar.FullName)" `
+            >> $env:GITHUB_OUTPUT
+
+      # ----------------------------------------------------------
+      # Upload artifact
+      # ----------------------------------------------------------
+
+      - name: Upload application artifact
+        uses: actions/upload-artifact@v6
+        with:
+          name: java-application
+          path: ${{ steps.find_jar.outputs.jar }}
+          if-no-files-found: error
+
+
+  # ============================================================
+  # DEV DEPLOYMENT
+  # ============================================================
+
+  deploy-dev:
+
+    name: Deploy DEV
+
+    needs: build
+
+    runs-on: [self-hosted, windows, x64]
+
+    environment:
+      name: dev
+
+    steps:
+
+      - name: Download application artifact
+        uses: actions/download-artifact@v7
+        with:
+          name: java-application
+          path: C:\Deploy\Dev
+
+      - name: Deploy DEV application
+        shell: powershell
+        run: |
+
+          $deployPath = "C:\Apps\Dev"
+          $jar = Get-ChildItem `
+            "C:\Deploy\Dev" `
+            -Filter "*.jar" |
+            Select-Object -First 1
+
+          if (-not $jar) {
+            throw "DEV JAR not found."
+          }
+
+          New-Item `
+            -ItemType Directory `
+            -Path $deployPath `
+            -Force | Out-Null
+
+          Copy-Item `
+            $jar.FullName `
+            "$deployPath\application.jar" `
+            -Force
+
+          # Stop existing Java application
+          Get-Process java `
+            -ErrorAction SilentlyContinue |
+            Where-Object {
+              $_.Path -like "$deployPath*"
+            } |
+            Stop-Process -Force `
+            -ErrorAction SilentlyContinue
+
+          # Start DEV application
+          Start-Process `
+            "java.exe" `
+            -ArgumentList "-jar `"$deployPath\application.jar`" --server.port=8081" `
+            -WorkingDirectory $deployPath
+
+          Start-Sleep -Seconds 15
+
+      - name: Health check DEV
+        shell: powershell
+        run: |
+
+          $url = "http://localhost:8081"
+
+          try {
+
+            $response = Invoke-WebRequest `
+              -Uri $url `
+              -UseBasicParsing `
+              -TimeoutSec 20
+
+            Write-Host "DEV HTTP Status: $($response.StatusCode)"
+
+          }
+          catch {
+
+            Write-Error "DEV health check failed."
+
+            exit 1
+          }
+
+
+  # ============================================================
+  # QA DEPLOYMENT
+  # ============================================================
+
+  deploy-qa:
+
+    name: Deploy QA
+
+    needs: deploy-dev
+
+    runs-on: [self-hosted, windows, x64]
+
+    environment:
+      name: qa
+
+    steps:
+
+      - name: Download application artifact
+        uses: actions/download-artifact@v7
+        with:
+          name: java-application
+          path: C:\Deploy\QA
+
+      - name: Deploy QA application
+        shell: powershell
+        run: |
+
+          $deployPath = "C:\Apps\QA"
+
+          $jar = Get-ChildItem `
+            "C:\Deploy\QA" `
+            -Filter "*.jar" |
+            Select-Object -First 1
+
+          if (-not $jar) {
+            throw "QA JAR not found."
+          }
+
+          New-Item `
+            -ItemType Directory `
+            -Path $deployPath `
+            -Force | Out-Null
+
+          Copy-Item `
+            $jar.FullName `
+            "$deployPath\application.jar" `
+            -Force
+
+          Get-Process java `
+            -ErrorAction SilentlyContinue |
+            Where-Object {
+              $_.Path -like "$deployPath*"
+            } |
+            Stop-Process -Force `
+            -ErrorAction SilentlyContinue
+
+          Start-Process `
+            "java.exe" `
+            -ArgumentList "-jar `"$deployPath\application.jar`" --server.port=8082" `
+            -WorkingDirectory $deployPath
+
+          Start-Sleep -Seconds 15
+
+      - name: Health check QA
+        shell: powershell
+        run: |
+
+          try {
+
+            $response = Invoke-WebRequest `
+              -Uri "http://localhost:8082" `
+              -UseBasicParsing `
+              -TimeoutSec 20
+
+            Write-Host "QA HTTP Status: $($response.StatusCode)"
+
+          }
+          catch {
+
+            Write-Error "QA health check failed."
+
+            exit 1
+          }
+
+
+  # ============================================================
+  # PRODUCTION DEPLOYMENT
+  # ============================================================
+
+  deploy-production:
+
+    name: Deploy Production
+
+    needs: deploy-qa
+
+    runs-on: [self-hosted, windows, x64]
+
+    environment:
+      name: production
+
+    steps:
+
+      - name: Download application artifact
+        uses: actions/download-artifact@v7
+        with:
+          name: java-application
+          path: C:\Deploy\Prod
+
+      - name: Deploy Production application
+        shell: powershell
+        run: |
+
+          $deployPath = "C:\Apps\Prod"
+
+          $jar = Get-ChildItem `
+            "C:\Deploy\Prod" `
+            -Filter "*.jar" |
+            Select-Object -First 1
+
+          if (-not $jar) {
+            throw "Production JAR not found."
+          }
+
+          New-Item `
+            -ItemType Directory `
+            -Path $deployPath `
+            -Force | Out-Null
+
+          Copy-Item `
+            $jar.FullName `
+            "$deployPath\application.jar" `
+            -Force
+
+          Get-Process java `
+            -ErrorAction SilentlyContinue |
+            Where-Object {
+              $_.Path -like "$deployPath*"
+            } |
+            Stop-Process -Force `
+            -ErrorAction SilentlyContinue
+
+          Start-Process `
+            "java.exe" `
+            -ArgumentList "-jar `"$deployPath\application.jar`" --server.port=8083" `
+            -WorkingDirectory $deployPath
+
+          Start-Sleep -Seconds 20
+
+      - name: Health check Production
+        shell: powershell
+        run: |
+
+          try {
+
+            $response = Invoke-WebRequest `
+              -Uri "http://localhost:8083" `
+              -UseBasicParsing `
+              -TimeoutSec 20
+
+            Write-Host "Production HTTP Status: $($response.StatusCode)"
+
+          }
+          catch {
+
+            Write-Error "Production health check failed."
+
+            exit 1
+          }
