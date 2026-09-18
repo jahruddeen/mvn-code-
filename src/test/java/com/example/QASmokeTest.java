@@ -21,6 +21,8 @@ import static org.junit.Assert.*;
 @TestPropertySource(locations = "classpath:application-qa.properties")
 public class QASmokeTest {
 
+    private static final String CONTEXT_PATH = "/app";
+
     @Autowired
     private TestRestTemplate restTemplate;
 
@@ -30,7 +32,7 @@ public class QASmokeTest {
     @Test
     public void testApplicationHealth() {
         ResponseEntity<String> response = restTemplate.getForEntity(
-            "/actuator/health",
+            CONTEXT_PATH + "/actuator/health",
             String.class
         );
 
@@ -45,7 +47,7 @@ public class QASmokeTest {
     @Test
     public void testApplicationInfo() {
         ResponseEntity<String> response = restTemplate.getForEntity(
-            "/actuator/info",
+            CONTEXT_PATH + "/actuator/info",
             String.class
         );
 
@@ -59,7 +61,7 @@ public class QASmokeTest {
     @Test
     public void testMetricsEndpoint() {
         ResponseEntity<String> response = restTemplate.getForEntity(
-            "/actuator/metrics",
+            CONTEXT_PATH + "/actuator/metrics",
             String.class
         );
 
@@ -74,13 +76,13 @@ public class QASmokeTest {
     public void testHomeEndpoint() {
         try {
             ResponseEntity<String> response = restTemplate.getForEntity(
-                "/",
+                CONTEXT_PATH + "/",
                 String.class
             );
 
             assertTrue(
                 "Home endpoint should return 200 or 302",
-                response.getStatusCode() == HttpStatus.OK || 
+                response.getStatusCode() == HttpStatus.OK ||
                 response.getStatusCode() == HttpStatus.FOUND
             );
         } catch (Exception e) {
@@ -103,7 +105,7 @@ public class QASmokeTest {
     @Test
     public void testNotFoundEndpoint() {
         ResponseEntity<String> response = restTemplate.getForEntity(
-            "/api/nonexistent",
+            CONTEXT_PATH + "/api/nonexistent",
             String.class
         );
 
@@ -116,7 +118,7 @@ public class QASmokeTest {
     @Test
     public void testResponseHeaders() {
         ResponseEntity<String> response = restTemplate.getForEntity(
-            "/actuator/health",
+            CONTEXT_PATH + "/actuator/health",
             String.class
         );
 
